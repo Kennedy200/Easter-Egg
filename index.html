@@ -1,0 +1,445 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ForkHive Secret Terminal</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: #0a0e14;
+    font-family: 'Courier New', Monaco, monospace;
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+  }
+  .terminal {
+    width: 100%;
+    max-width: 900px;
+    background: #0d1117;
+    border-radius: 8px;
+    box-shadow: 0 20px 60px rgba(0, 255, 100, 0.15), 0 0 0 1px #1f2937;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    height: 80vh;
+    min-height: 500px;
+  }
+  .titlebar {
+    background: linear-gradient(180deg, #2d333b, #22272e);
+    padding: 10px 14px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    border-bottom: 1px solid #1f2937;
+  }
+  .dot { width: 12px; height: 12px; border-radius: 50%; }
+  .dot.r { background: #ff5f57; }
+  .dot.y { background: #febc2e; }
+  .dot.g { background: #28c840; }
+  .title {
+    color: #8b949e;
+    font-size: 13px;
+    margin-left: auto;
+    margin-right: auto;
+    padding-right: 50px;
+    letter-spacing: 0.5px;
+  }
+  .screen {
+    flex: 1;
+    overflow-y: auto;
+    padding: 16px 20px;
+    color: #c9d1d9;
+    font-size: 14px;
+    line-height: 1.6;
+    scroll-behavior: smooth;
+  }
+  .screen::-webkit-scrollbar { width: 8px; }
+  .screen::-webkit-scrollbar-track { background: #0d1117; }
+  .screen::-webkit-scrollbar-thumb { background: #30363d; border-radius: 4px; }
+  .line { white-space: pre-wrap; word-break: break-word; }
+  .prompt { color: #7ee787; }
+  .user { color: #79c0ff; }
+  .path { color: #d2a8ff; }
+  .cmd { color: #ffa657; }
+  .output { color: #c9d1d9; margin-left: 0; }
+  .success { color: #7ee787; }
+  .error { color: #ff7b72; }
+  .warn { color: #f0883e; }
+  .dim { color: #6e7681; }
+  .ascii { color: #58a6ff; font-size: 12px; line-height: 1.2; }
+  .input-line {
+    display: flex;
+    align-items: center;
+    padding: 0 20px 16px;
+    background: #0d1117;
+  }
+  .input-prompt {
+    color: #7ee787;
+    white-space: nowrap;
+    margin-right: 8px;
+    font-size: 14px;
+  }
+  .input-prompt .u { color: #79c0ff; }
+  .input-prompt .p { color: #d2a8ff; }
+  #cmdinput {
+    flex: 1;
+    background: transparent;
+    border: none;
+    outline: none;
+    color: #c9d1d9;
+    font-family: inherit;
+    font-size: 14px;
+    caret-color: #7ee787;
+  }
+  .blink::after {
+    content: '▊';
+    color: #7ee787;
+    animation: blink 1s infinite;
+  }
+  @keyframes blink {
+    0%, 50% { opacity: 1; }
+    51%, 100% { opacity: 0; }
+  }
+  .typing { display: inline-block; }
+</style>
+</head>
+<body>
+<div class="terminal">
+  <div class="titlebar">
+    <div class="dot r"></div>
+    <div class="dot y"></div>
+    <div class="dot g"></div>
+    <div class="title">forkhive@prod: ~/secrets</div>
+  </div>
+  <div class="screen" id="screen"></div>
+  <div class="input-line">
+    <span class="input-prompt"><span class="u">dev</span>@<span class="p">forkhive</span>:~$</span>
+    <input id="cmdinput" autocomplete="off" autofocus spellcheck="false">
+  </div>
+</div>
+
+<script>
+const screen = document.getElementById('screen');
+const input = document.getElementById('cmdinput');
+const history = [];
+let histIdx = -1;
+
+const banner = `
+   ╔═══════════════════════════════════════════════╗
+   ║   ForkHive Secret Terminal  v4.20.69          ║
+   ║   "Where the bugs come to die" ™              ║
+   ╚═══════════════════════════════════════════════╝
+`;
+
+const motds = [
+  "Tip: Today is a great day to blame the intern.",
+  "Tip: It's not a bug, it's an undocumented feature.",
+  "Tip: Production is just a staging environment with users.",
+  "Tip: 'It works on my machine' is a valid deployment strategy.",
+  "Tip: Coffee is a load-bearing dependency. Do not remove."
+];
+
+function print(html, cls='') {
+  const div = document.createElement('div');
+  div.className = 'line ' + cls;
+  div.innerHTML = html;
+  screen.appendChild(div);
+  screen.scrollTop = screen.scrollHeight;
+}
+
+function printPrompt(cmd) {
+  print(`<span class="prompt"><span class="user">dev</span>@<span class="path">forkhive</span>:~$</span> <span class="cmd">${escapeHtml(cmd)}</span>`);
+}
+
+function escapeHtml(s) {
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+// Boot sequence
+async function boot() {
+  const steps = [
+    {t:'Loading kernel modules', d:300},
+    {t:'Mounting /dev/coffee', d:200},
+    {t:'Starting blame-the-intern service', d:250},
+    {t:'Initializing stackoverflow.connector', d:300},
+    {t:'Loading caffeine drivers', d:200}
+  ];
+  for (const s of steps) {
+    const line = document.createElement('div');
+    line.className = 'line dim';
+    line.innerHTML = `[ <span class="warn">..</span> ] ${s.t}`;
+    screen.appendChild(line);
+    await sleep(s.d);
+    line.innerHTML = `[ <span class="success">OK</span> ] ${s.t}`;
+  }
+  await sleep(200);
+  print(banner, 'ascii');
+  print(`<span class="dim">${motds[Math.floor(Math.random()*motds.length)]}</span>`);
+  print(`<span class="dim">Type <span class="success">help</span> to see what this thing can do.</span>`);
+  print('');
+}
+
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+const commands = {
+  help: () => {
+    print('<span class="success">Available commands:</span>');
+    print('  <span class="cmd">help</span>           Show this message (you found it!)');
+    print('  <span class="cmd">whoami</span>         An existential crisis');
+    print('  <span class="cmd">ls</span>             List things you probably shouldn\'t see');
+    print('  <span class="cmd">cat secrets.txt</span>   Read the team\'s deepest truths');
+    print('  <span class="cmd">sudo deploy</span>    Deploy to production (no take-backs)');
+    print('  <span class="cmd">git blame</span>      Find out whose fault it is');
+    print('  <span class="cmd">fortune</span>        Wisdom from the dev gods');
+    print('  <span class="cmd">coffee</span>         Critical dependency');
+    print('  <span class="cmd">make me a sandwich</span>   Try it');
+    print('  <span class="cmd">rm -rf /</span>       Don\'t. Just don\'t.');
+    print('  <span class="cmd">hack the planet</span>   You know you want to');
+    print('  <span class="cmd">why</span>            The eternal question');
+    print('  <span class="cmd">vim</span>            Enter the labyrinth');
+    print('  <span class="cmd">matrix</span>         Take the red pill');
+    print('  <span class="cmd">clear</span>          Clear the screen');
+    print('  <span class="dim">...and others. Keep poking around.</span>');
+  },
+  whoami: () => {
+    print('<span class="warn">A collection of bugs held together by stack overflow answers</span>');
+    print('<span class="dim">and an unhealthy amount of caffeine.</span>');
+  },
+  ls: () => {
+    print('<span class="success">drwx------</span>  legacy_code_we_dont_talk_about/');
+    print('<span class="success">drwx------</span>  TODO_eventually/');
+    print('<span class="success">-rw-r--r--</span>  passwords.txt.bak.old.FINAL.v2');
+    print('<span class="success">-rwxr-xr-x</span>  works_on_my_machine.sh');
+    print('<span class="success">-rw-r--r--</span>  secrets.txt');
+    print('<span class="success">-rw-r--r--</span>  .env.production  <span class="error">(do NOT commit)</span>');
+    print('<span class="success">drwx------</span>  node_modules/  <span class="dim">(2.4 TB)</span>');
+  },
+  'cat secrets.txt': () => {
+    print('<span class="warn">━━━━━━━━━━━━ CLASSIFIED ━━━━━━━━━━━━</span>');
+    print('1. Nobody actually reads the standup updates.');
+    print('2. The "5-minute fix" is a myth.');
+    print('3. We have no idea what that one cron job does.');
+    print('   It\'s been running since 2019. We\'re scared to stop it.');
+    print('4. The senior dev also Googles "how to center a div".');
+    print('5. There is no plan B. There is barely a plan A.');
+    print('<span class="warn">━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━</span>');
+  },
+  'sudo deploy': async () => {
+    print('<span class="warn">[sudo] password for dev:</span> <span class="dim">******</span>');
+    await sleep(400);
+    print('<span class="success">Authenticated.</span> Initiating deploy to <span class="error">PRODUCTION</span>...');
+    await sleep(300);
+    const stages = [
+      'Running tests',
+      'Skipping tests (they were failing)',
+      'Building bundle',
+      'Praying',
+      'Uploading to server',
+      'Crossing fingers',
+      'Restarting services'
+    ];
+    for (const s of stages) {
+      print(`<span class="dim">  → ${s}...</span>`);
+      await sleep(280);
+    }
+    await sleep(200);
+    print('<span class="success">✓ Deploy successful!</span>');
+    print('<span class="dim">  Now go monitor Sentry and pretend you\'re not nervous.</span>');
+  },
+  'git blame': () => {
+    const culprits = [
+      'It was you. Three months ago. At 2:47 AM.',
+      'A developer who "left the team" suspiciously soon after.',
+      '"refactor" - a single commit touching 847 files. Good luck.',
+      'The intern. It\'s always the intern.',
+      'You wrote this. The commit message says "wip dont touch".',
+      'Past You. Past You is a monster.'
+    ];
+    print('<span class="warn">' + culprits[Math.floor(Math.random()*culprits.length)] + '</span>');
+  },
+  fortune: () => {
+    const fortunes = [
+      '"There are only two hard things in CS: cache invalidation, naming things, and off-by-one errors."',
+      '"Weeks of coding can save you hours of planning."',
+      '"A user interface is like a joke. If you have to explain it, it\'s not that good."',
+      '"99 little bugs in the code, 99 little bugs. Take one down, patch it around — 137 little bugs in the code."',
+      '"It compiled. Ship it."',
+      '"The best code is the code you didn\'t have to write."',
+      '"In theory, theory and practice are the same. In practice, they are not."'
+    ];
+    print('<span class="success">' + fortunes[Math.floor(Math.random()*fortunes.length)] + '</span>');
+  },
+  coffee: () => {
+    print('       <span class="warn">) ) )</span>');
+    print('      <span class="warn">( ( (</span>');
+    print('     ┌─────┐');
+    print('     │  ☕ │');
+    print('     │     │___');
+    print('     │     │   )');
+    print('     │     │__/');
+    print('     └─────┘');
+    print('<span class="success">+1 productivity. +3 anxiety. -2 sleep.</span>');
+  },
+  'make me a sandwich': () => {
+    print('<span class="error">What? Make it yourself.</span>');
+  },
+  'sudo make me a sandwich': () => {
+    print('<span class="success">Okay.</span> 🥪');
+  },
+  'rm -rf /': () => {
+    print('<span class="error">Nice try.</span>');
+    print('<span class="dim">We\'ve seen this movie before. It does not end well.</span>');
+  },
+  'rm -rf node_modules': () => {
+    print('<span class="warn">Deleting node_modules...</span>');
+    print('<span class="dim">This will free up 2.4 TB of disk space.</span>');
+    print('<span class="dim">It will also break everything. Reinstalling will take 4 hours.</span>');
+    print('<span class="success">Worth it. Some say it\'s the only way to truly fix a bug.</span>');
+  },
+  'hack the planet': () => {
+    print('<span class="success">>>> CONNECTING TO MAINFRAME...</span>');
+    print('<span class="success">>>> BYPASSING FIREWALL...</span>');
+    print('<span class="success">>>> ENHANCING IMAGE...</span>');
+    print('<span class="success">>>> ACCESS GRANTED</span>');
+    print('');
+    print('<span class="warn">Just kidding. You opened DevTools. Welcome to the 90s.</span>');
+  },
+  why: () => {
+    const answers = [
+      'Because the spec said so. Which spec? Nobody remembers.',
+      'It was a Tuesday. We were tired. Don\'t ask.',
+      'Legacy reasons. Always legacy reasons.',
+      'Because rewriting it would take 6 weeks and we have a sprint deadline.',
+      'Ask the previous engineer. Oh wait, they\'re gone.',
+      'Why not?'
+    ];
+    print('<span class="dim">' + answers[Math.floor(Math.random()*answers.length)] + '</span>');
+  },
+  vim: () => {
+    print('<span class="warn">You have entered vim.</span>');
+    print('<span class="dim">To exit, try: :q, :q!, :wq, Ctrl+C, Ctrl+Z, closing the terminal,</span>');
+    print('<span class="dim">restarting your computer, or accepting your new life here.</span>');
+    print('<span class="error">(Just kidding. Type "exit" or any other command.)</span>');
+  },
+  exit: () => {
+    print('<span class="success">Wow, you actually escaped vim. Impressive.</span>');
+  },
+  matrix: async () => {
+    print('<span class="success">Wake up, Neo...</span>');
+    await sleep(600);
+    for (let i = 0; i < 8; i++) {
+      let line = '';
+      for (let j = 0; j < 60; j++) {
+        line += Math.random() > 0.5 ? '1' : '0';
+      }
+      print(`<span class="success">${line}</span>`);
+      await sleep(80);
+    }
+    print('<span class="warn">The Matrix has you. Also your code has a memory leak.</span>');
+  },
+  ping: () => {
+    print('PING google.com (142.250.80.46): 56 data bytes');
+    print('64 bytes from 142.250.80.46: time=12.4 ms');
+    print('64 bytes from 142.250.80.46: time=11.8 ms');
+    print('<span class="dim">--- google.com ping statistics ---</span>');
+    print('<span class="success">2 packets transmitted, 2 received, 0% packet loss</span>');
+    print('<span class="dim">Translation: the internet works. The problem is your code.</span>');
+  },
+  date: () => {
+    print(new Date().toString());
+    print('<span class="dim">Still Monday somewhere. Hang in there.</span>');
+  },
+  ls_minus_la: () => commands.ls(),
+  'ls -la': () => commands.ls(),
+  clear: () => { screen.innerHTML = ''; },
+  exit_terminal: () => { print('<span class="error">You can check out any time you like, but you can never leave.</span>'); },
+  '42': () => print('<span class="success">You found the answer. Now what was the question?</span>'),
+  ':wq': () => print('<span class="warn">Saved. Quit. Freedom.</span>'),
+  ':q!': () => print('<span class="warn">Quit without saving. Bold move.</span>'),
+  'hello world': () => print('<span class="success">Hello, World! 👋 Your first program still works.</span>'),
+  uptime: () => print('<span class="dim">up 847 days, 14:32. Definitely time to patch something.</span>'),
+  ps: () => {
+    print('  PID  CMD');
+    print(' 1337  doomscrolling');
+    print(' 2048  pretending-to-work');
+    print(' 4096  one-more-stack-overflow-tab');
+    print(' 8192  slack-checking');
+    print('31337  the-real-work (suspended)');
+  }
+};
+
+const fallbacks = [
+  cmd => `<span class="error">bash: ${escapeHtml(cmd)}: command not found</span>\n<span class="dim">Did you try turning it off and on again?</span>`,
+  cmd => `<span class="error">bash: ${escapeHtml(cmd)}: command not found</span>\n<span class="dim">Have you tried Googling that?</span>`,
+  cmd => `<span class="error">bash: ${escapeHtml(cmd)}: command not found</span>\n<span class="dim">Maybe ChatGPT knows.</span>`,
+  cmd => `<span class="error">bash: ${escapeHtml(cmd)}: command not found</span>\n<span class="dim">Type 'help' to see what actually works.</span>`
+];
+
+async function runCommand(raw) {
+  const cmd = raw.trim();
+  if (!cmd) return;
+  printPrompt(cmd);
+  history.push(cmd);
+  histIdx = history.length;
+
+  const lower = cmd.toLowerCase();
+  if (commands[lower]) {
+    await commands[lower]();
+  } else if (lower.startsWith('echo ')) {
+    print(cmd.slice(5));
+  } else if (lower.startsWith('cd ')) {
+    print('<span class="dim">Nice try. There\'s only one directory here.</span>');
+  } else if (lower.startsWith('git ')) {
+    print('<span class="dim">Try \'git blame\' if you want a real answer.</span>');
+  } else if (lower.startsWith('sudo ')) {
+    print('<span class="error">' + cmd.split(' ').slice(1).join(' ') + ': permission denied (even with sudo, the universe says no)</span>');
+  } else {
+    print(fallbacks[Math.floor(Math.random()*fallbacks.length)](cmd));
+  }
+  print('');
+}
+
+input.addEventListener('keydown', async (e) => {
+  if (e.key === 'Enter') {
+    const val = input.value;
+    input.value = '';
+    await runCommand(val);
+  } else if (e.key === 'ArrowUp') {
+    e.preventDefault();
+    if (histIdx > 0) {
+      histIdx--;
+      input.value = history[histIdx];
+    }
+  } else if (e.key === 'ArrowDown') {
+    e.preventDefault();
+    if (histIdx < history.length - 1) {
+      histIdx++;
+      input.value = history[histIdx];
+    } else {
+      histIdx = history.length;
+      input.value = '';
+    }
+  } else if (e.key === 'Tab') {
+    e.preventDefault();
+    const partial = input.value.toLowerCase();
+    const match = Object.keys(commands).find(c => c.startsWith(partial));
+    if (match) input.value = match;
+  }
+});
+
+// Keep focus on input
+document.addEventListener('click', () => input.focus());
+
+// Console message for devs who open DevTools
+console.log('%c👀 Well well well...', 'color: #7ee787; font-size: 24px; font-weight: bold;');
+console.log('%cLook who opened DevTools. A true engineer.', 'color: #79c0ff; font-size: 14px;');
+console.log('%cTry typing some commands in the terminal. There are more than you think.', 'color: #d2a8ff; font-size: 12px;');
+console.log('%c\nHint: try `hack the planet`, `matrix`, or `sudo make me a sandwich` 🥪', 'color: #f0883e; font-size: 12px;');
+
+boot();
+</script>
+</body>
+</html>
